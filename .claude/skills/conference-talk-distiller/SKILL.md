@@ -25,7 +25,7 @@ For each talk, identify:
 1. **The thesis** — 1-2 sentences. What is the speaker really arguing?
 2. **The 3 things that matter for our program** — compliance-relevant takeaways.
 3. **The mental-model shift** (if any) — does this change how we think about something?
-4. **Speaker worth tracking** — does this person belong in `voices.csv`?
+4. **Speaker worth tracking** — does this person belong on a voice roster (`vault/_config/rosters/`)?
 5. **What I'd ask in Q&A** — articulating questions sharpens thinking.
 
 ## Output structure
@@ -43,7 +43,7 @@ For each talk, identify:
 {...}
 
 ## Speaker
-- Worth adding to voices.csv? {yes/no + reason}
+- Worth adding to a voice roster? {yes/no + which category + reason}
 - Other surfaces (Substack, GitHub, etc.)
 
 ## What I'd ask in Q&A

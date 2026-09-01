@@ -1,8 +1,9 @@
 $schema: "https://raw.githubusercontent.com/bitwise-media-group/evolve/main/schemas/triggers.schema.json"
 skill_name: voices-watcher
 
-# voices-watcher POLLS the curated roster (voices.csv) and reports what those
-# voices published — Substack, blog, podcast, and (since 2026-08-22) YouTube.
+# voices-watcher POLLS a curated roster and reports what those voices published
+# — Substack, blog, podcast, and (since 2026-08-22) YouTube. As of 2026-08-31
+# rosters are per category, so a run is scoped to one ("the AI voices digest").
 #
 # The negatives guard the three ways this description can over-fire:
 #   - editing the roster  -> voices-roster-curator
@@ -18,13 +19,24 @@ triggers:
   # Diagnostic pair. The first is roster-anchored ("my voices"); the second uses
   # bare YouTube-product vocabulary ("channels I follow"), which most naturally
   # means the user's real YouTube subscriptions — something this skill cannot
-  # read, since it polls voices.csv, not a YouTube account. Kept as an honest
+  # read, since it polls a roster, not a YouTube account. Kept as an honest
   # record of where ad-hoc invocation does and does not reach.
   - query: "Any new videos from the voices on my roster?"
     should_trigger: true
   - query: "What's new on the YouTube channels I follow?"
     should_trigger: true
+  # Category-scoped forms (added 2026-08-31 with the multi-category split).
+  # These must fire: naming one category is the normal way to invoke the skill
+  # now, not a special case.
+  - query: "Run the AI voices digest"
+    should_trigger: true
+  - query: "What did my security voices publish today?"
+    should_trigger: true
   - query: "Add Simon Willison to my voices roster"
+    should_trigger: false
+  # Still the curator's job even when a category is named — adding a voice is a
+  # write to the roster, not a poll of it.
+  - query: "Add Simon Willison to my security voices"
     should_trigger: false
   - query: "What new CVEs hit our stack in the last 24 hours?"
     should_trigger: false

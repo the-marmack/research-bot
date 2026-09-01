@@ -10,10 +10,10 @@ YouTube publishes a per-channel Atom feed at::
     https://www.youtube.com/feeds/videos.xml?channel_id=<UC...>
 
 No API key, no HTML scraping, no ``yt-dlp``. ``voices-watcher`` uses this to
-surface new videos per voice, which is why the ``youtube`` column in
-``voices.csv`` stores the canonical ``/channel/UC...`` URL rather than an
-``@handle`` URL: the channel-id form converts to a feed URL with zero network
-calls and zero failure modes.
+surface new videos per voice, which is why a roster's ``youtube`` column stores
+the canonical ``/channel/UC...`` URL rather than an ``@handle`` URL: the
+channel-id form converts to a feed URL with zero network calls and zero failure
+modes.
 
 Resolving an ``@handle`` to a channel id is the one fragile step, so
 :func:`resolve_channel_id` is deliberately strict. A channel page embeds the
@@ -241,7 +241,7 @@ def validate_roster_header(header):
 
 
 def _main(argv):
-    """CLI: resolve channel URLs/handles to the row values voices.csv needs.
+    """CLI: resolve channel URLs/handles to the row values a roster needs.
 
     Usage: python3 youtube_feeds.py <channel-url-or-id> [...]
     """

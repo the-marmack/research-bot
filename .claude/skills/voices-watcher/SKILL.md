@@ -1,56 +1,67 @@
 ---
 name: voices-watcher
-description: Daily scheduled agent that reports what the people and channels on the curated roster at `voices.csv` just published — new Substack posts, blog articles, podcast episodes, and YouTube videos. Use when the user asks to run the voices digest, what their AI/security voices published today, what's new on the YouTube channels or creators they follow or subscribe to, or which of their tracked voices posted recently — and on its daily 07:30 schedule. Writes vault/digests/daily/YYYY-MM-DD-voices-watcher.md. YouTube is polled via per-channel Atom feeds — no API key, no transcripts; video items surface as title + link only. Also keeps vault/people/{handle}.md in sync for non-org rows. Does NOT poll X/Twitter (per decisions/2026-06-20-adopt-obsidian-and-ob1-patterns).
+description: Daily scheduled agent that reports what the people and channels on a curated roster just published — new Substack posts, blog articles, podcast episodes, and YouTube videos. Rosters are per category (AI, security, product, …) at vault/_config/rosters/, each with its own digest. Use when the user asks to run the voices digest or one category of it ("run the AI voices digest", "what did my security voices publish today"), what their voices published today, what's new on the YouTube channels or creators they follow or subscribe to, or which of their tracked voices posted recently — and on its daily schedule. Writes vault/digests/daily/YYYY-MM-DD-{category}.md. YouTube is polled via per-channel Atom feeds — no API key, no transcripts; video items surface as title + link only. Also keeps vault/people/{handle}.md in sync for non-org rows. Does NOT poll X/Twitter (per decisions/2026-06-20-adopt-obsidian-and-ob1-patterns).
 ---
 
 # voices-watcher
 
-The daily intelligence pipe for what the AI / product-strategy commentariat is publishing. Reads the human-curated roster at `voices.csv` (repo root), polls every voice's Substack / YouTube / blog / podcast feeds, and surfaces what's new in a single digest the user reads each morning.
+The daily intelligence pipe for what the commentariat is publishing. Each **category** — AI, security, product, whatever the user tracks — has its own roster and its own digest, so a morning read can be skimmed by interest instead of as one undifferentiated list.
 
 ## Agent config (consumed by `scheduled-agent-runner`)
 
+Most fields resolve from the firing category's config at `vault/_config/digests/{category}.md`, so adding a category is a vault edit, not a skill edit.
+
 ```yaml
 agent_name: voices-watcher
-cadence: daily
-schedule_hint: "07:30 local"
+kind: voices
+category_required: true                    # every run names exactly one category
+category_config: vault/_config/digests/{category}.md
+cadence: "{config.cadence}"
 source_filter:
-  custom: voices.csv               # NOT source-registry — uses voices.csv at repo root
-  surfaces:                        # which columns to poll
-    - substack
-    - youtube
-    - blog
-    - podcast
-  max_items_per_voice: 3           # also caps conference channels that dump dozens of talks at once
-verify_loadbearing: false          # commentary is not "fact-claim" material; skip 3-vote refute
-curate_findings: false             # findings stay in the digest; user decides what to promote manually
-seed_people_notes: true            # vault/people/{handle}.md for every NON-org roster row
+  custom: roster                           # NOT source-registry — routes to the roster loader
+  roster: "{config.roster}"                # resolved under vault/_config/
+  surfaces: "{config.surfaces}"            # which columns to poll
+  max_items_per_voice: "{config.max_items_per_voice}"
+verify_loadbearing: false                  # commentary is not "fact-claim" material; skip 3-vote refute
+curate_findings: false                     # findings stay in the digest; user promotes manually
+seed_people_notes: "{config.seed_people_notes}"
+digest_variant: "{config.id}"              # → vault-writer.write_digest(variant=…)
+digest_title: "{config.title}"             # → the digest H1
+digest_tags: "{config.tags}"
+email: "{config.email}"                    # false → runner step 11 is skipped entirely
+email_list: "{config.email_list}"          # names a distribution-list segment, or null for everyone
 digest_template_overrides:
-  why_you_care_extra: |
-    Voices are commentators, not vendors. Frame "Why You Care" by tying threads to active
-    SDLC modernization questions, Copilot rollout posture, peer-bank concerns, or AI
-    governance work. If a post is purely off-topic for the org context, surface the
-    title only — don't generate a Why-You-Care line.
-
-    Video items carry a title and link only — no transcript is fetched. Infer relevance
-    from the title alone, and if the title doesn't support a confident Why-You-Care line,
-    omit it rather than speculating about content you have not seen.
+  why_you_care_extra: "{config.framing}"   # the category config's `## Framing` section
 ```
+
+## Resolving the category
+
+Every run is scoped to one category. Resolve it, in order:
+
+1. The 6th argument from `run-scheduled-job.sh` (scheduled runs).
+2. The `category:` frontmatter field of the queue marker being drained.
+3. The user's words — "run the AI voices digest", "what did my security voices publish". Match against the `title` and `id` of each config under `vault/_config/digests/`.
+
+If the user asks for "the voices digest" with no category and more than one exists, **ask which** rather than guessing or running all of them. If exactly one category exists, use it.
+
+Then:
+
+- Load and validate the config with [`digest_categories.py`](./digest_categories.py). Any validation problem is a stop-and-report — do not run on a half-valid config.
+- **If `digest: false`** (a dormant category): delete this run's queue marker, log `category dormant — no digest written`, and exit 0. The roster is still tracked and curated; it just produces nothing.
+- Load the roster. Validate its header with `youtube_feeds.validate_roster_header`.
+- **If any handle in this roster also appears in another roster**, stop and report. Rosters must be disjoint — see [Dedup](#dedup-is-shared-across-categories).
 
 ## How it differs from `weekly-intelligence-digest`
 
-This skill **does not use `source-registry`**. The voices roster is human-curated outside the registry because it's a long, slowly-changing list of people (not vendor/regulator surfaces). Edits to who's watched happen by editing `voices.csv` (or via [`voices-roster-curator`](../voices-roster-curator/SKILL.md)), not by editing the registry.
+This skill **does not use `source-registry`**. The rosters are human-curated outside the registry because they're long, slowly-changing lists of people (not vendor/regulator surfaces). Edits to who's watched happen in `vault/_config/rosters/{category}.csv` — by hand or via [`voices-roster-curator`](../voices-roster-curator/SKILL.md) — not by editing the registry.
 
-`scheduled-agent-runner`'s lifecycle still applies — the runner accepts a `source_filter.custom: voices.csv` and routes to the voices loader instead of the registry loader.
-
-## Historical note — the one hand-wired scheduled agent
-
-This SKILL.md predates `scheduled-agent-runner`'s declarative config and wires the foundation skills (seen-tracker, source-fetcher, prompt-injection-guard, digest-writer, vault-writer) individually by hand throughout the sections below. It is the **only** Category 2 agent that does this — every other scheduled agent is config + framing on top of the runner. Do **not** copy this pattern when writing a new scheduled agent; declare a runner config instead.
+`scheduled-agent-runner`'s lifecycle applies unchanged; the runner accepts `source_filter.custom: roster` and routes to the roster loader instead of the registry loader.
 
 ## Per-row polling logic
 
-For each row in `voices.csv`:
+For each row in the category's roster:
 
-1. **Skip** if no row has any of the polling-surface columns populated (`substack`, `youtube`, `blog`, `podcast`).
+1. **Skip** if the row has none of the polling-surface columns populated (`substack`, `youtube`, `blog`, `podcast`). X/Twitter-only rows exist as person-note seeds and are never polled.
 2. For each populated surface URL:
    - **`youtube` → see [YouTube polling](#youtube-polling) below.** Never scrape a YouTube page; use the Atom feed.
    - All other surfaces: call `source-fetcher` on the URL (Substack and most blogs have RSS at `<base>/feed`; try that first, fall back to scraping the page).
@@ -58,6 +69,14 @@ For each row in `voices.csv`:
    - `seen-tracker.bulk_filter` against `.state/voices-watcher/seen.jsonl`.
 3. Group new items by voice.
 4. Skip voices with zero new items in the period (don't pad the digest with "nothing new from X").
+
+### Dedup is shared across categories
+
+All categories share one `seen-tracker` consumer, `voices-watcher`, and therefore one `.state/voices-watcher/seen.jsonl` keyed on item URL. This is only correct because **rosters are disjoint** — each URL is fetched by exactly one category's run, so a shared file is a larger dedup pool rather than a race.
+
+Record `category` in each item's `metadata` alongside `voice` and `surface`, so state stays auditable per category.
+
+Do **not** introduce per-category state files. They would start empty, so every category's first run would re-report months of already-surfaced items.
 
 ## YouTube polling
 
@@ -103,9 +122,9 @@ Titles and descriptions in a YouTube feed are **attacker-controllable**, and pro
 
 ## Person-note seeding
 
-**Org rows are excluded.** A row whose `role` ends in `(org)` — e.g. `AI security (org)`, `security conference (org)` — is an organisation or conference channel (OWASP GenAI, DEF CON, Black Hat, Trail of Bits, Anthropic, MLST), not a person. Org rows are **polled normally but never seeded into `vault/people/`**, which is for people. Use `youtube_feeds.is_org_role(role)` to test; do not pattern-match the role string inline.
+**Org rows are excluded.** A row whose `role` ends in `(org)` — e.g. `AI security (org)`, `security conference (org)` — is an organisation or conference channel (OWASP GenAI, DEF CON, Black Hat, Trail of Bits, Anthropic, MLST), not a person. Org rows are **polled normally but never seeded into `vault/people/`**, which is for people. Use `youtube_feeds.is_org_role(role)` to test; do not pattern-match the role string inline. The `(org)` convention is orthogonal to category — an org row can live in any roster.
 
-For every non-org row in `voices.csv`, ensure a `vault/people/{handle}.md` note exists with frontmatter populated from the CSV columns (handle, name, bio_snippet, role, surfaces dict). On first run this creates ~25 notes; on subsequent runs it patches:
+For every non-org row in the category's roster, ensure a `vault/people/{handle}.md` note exists with frontmatter populated from the CSV columns (handle, name, bio_snippet, role, surfaces dict). People notes are **not** namespaced by category — a person has one note regardless of which roster they're on. On first run for a category this creates a note per new row; on subsequent runs it patches:
 - New surface URLs from the CSV → merged into `surfaces` dict
 - New `notes` column entries → appended to the note's body
 - Existing human-written body content → **preserved** (per `vault-writer.write_person` idempotency rules)
@@ -124,24 +143,37 @@ Standard 5-section structure (per `digest-writer`):
 
 ## Output
 
-`vault/digests/daily/YYYY-MM-DD-voices-watcher.md` — the digest.
-`vault/people/{handle}.md` — created or patched, one per roster row.
+`vault/digests/daily/YYYY-MM-DD-{category}.md` — the digest, written via `vault-writer.write_digest(variant=category)`. Frontmatter carries `source_skill: voices-watcher` and `digest_id: {category}`.
+`vault/people/{handle}.md` — created or patched, one per non-org roster row.
+
+A dormant category (`digest: false`) writes neither.
 
 ## Composes with
 
-- Roster: `voices.csv` (repo root) — human-curated.
+- Rosters: `vault/_config/rosters/{category}.csv` — human-curated, disjoint.
+- Category configs: `vault/_config/digests/{category}.md`, parsed by [`digest_categories.py`](./digest_categories.py).
 - All Phase-1 foundation skills via `scheduled-agent-runner`.
 - `vault-writer.write_person` for people-note seeding (uses person.yml schema).
+- [`voices-roster-curator`](../voices-roster-curator/SKILL.md) — the write side of the rosters.
 
 ## Acceptance test (for step 8 done-criteria)
 
-One end-to-end run. Confirm:
-- Daily digest at `vault/digests/daily/YYYY-MM-DD-voices-watcher.md` exists with 5 sections.
-- Every row in `voices.csv` has a corresponding `vault/people/{handle}.md` note (~25 files).
+One end-to-end run per category. Confirm:
+- Daily digest at `vault/digests/daily/YYYY-MM-DD-{category}.md` exists with 5 sections, `source_skill: voices-watcher`, and `digest_id: {category}`.
+- Every non-org row in that roster has a corresponding `vault/people/{handle}.md` note.
 - Each person note has valid frontmatter per `person.yml`.
-- The digest surfaces real new items from at least 2 polled Substacks.
+- The digest surfaces real new items from at least 2 polled surfaces.
 - Sources section lists which voices were polled vs skipped.
-- `.state/voices-watcher/seen.jsonl` populated.
+- `.state/voices-watcher/seen.jsonl` populated, with `category` in each record's metadata.
+
+### Multi-category behaviour (added 2026-08-31)
+
+- Two categories running the same day produce two distinct digest files; neither collides.
+- A voice's item appears in exactly one category's digest (rosters are disjoint).
+- A second run the same day re-reports nothing — shared dedup state holds across categories.
+- A category with `digest: false` writes no digest, deletes its own marker, and exits 0.
+- A category with `email: false` writes its digest but sends no mail.
+- A roster header that is reordered or missing a column is a stop-and-report, not a silent partial run.
 
 ### YouTube surface (added 2026-08-22)
 
