@@ -113,10 +113,13 @@ def build_job_plist(job: dict, default_mode: str, log_dir: Path, queue_dir: Path
     timeout = int(job.get("timeout_seconds", 600))
     every_n = int(job["cadence"].get("every_n_weeks", 1))
 
+    # $6 (category) is always appended, empty for uncategorized jobs, so the
+    # wrapper's `set -u` never sees an unset positional.
     program_args = [
         "/bin/bash",
         str(DEPLOY_SCRIPTS_DIR / "run-scheduled-job.sh"),
         job_id, mode, skill, str(timeout), str(every_n),
+        str(job.get("category", "")),
     ]
     log_file = str(log_dir / f"{job_id}.log")
     intervals = cadence_to_calendar_intervals(job["cadence"])

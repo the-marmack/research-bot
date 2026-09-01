@@ -257,7 +257,8 @@ def main():
             print(f"  {job_id}: MISSED (last={last_run.isoformat()}, expected={expected.isoformat()}) — firing catch-up")
 
         result = subprocess.run(
-            ["bash", str(wrapper), job_id, mode, skill, str(timeout), str(every_n)],
+            ["bash", str(wrapper), job_id, mode, skill, str(timeout), str(every_n),
+             str(job.get("category", ""))],
             capture_output=True, text=True, env=wrapper_env,
         )
         print(f"    wrapper exit={result.returncode}")

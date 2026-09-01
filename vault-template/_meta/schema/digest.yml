@@ -1,4 +1,6 @@
-# digests/{cadence}/YYYY-MM-DD-{skill}.md — scheduled-agent outputs.
+# digests/{cadence}/YYYY-MM-DD-{digest_id}.md — scheduled-agent outputs.
+# digest_id defaults to the skill name; a skill that emits several digests
+# per period (one per category) sets it per digest to keep filenames unique.
 extends: default
 required:
   - cadence
@@ -18,3 +20,8 @@ fields:
   new_since_last:
     type: integer
     required: false
+  digest_id:
+    type: string
+    required: false
+    note: filename segment; equals source_skill unless the digest is one
+      category slice of a multi-category skill

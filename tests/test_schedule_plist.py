@@ -69,6 +69,22 @@ def test_catch_up_plist_carries_operational_paths():
     assert env["RESEARCH_BOT_QUEUE_DIR"] == str(QUEUE)
 
 
+def test_category_arg_always_present_even_when_absent():
+    """$6 is always passed so the wrapper's `set -u` never sees it unset."""
+    job = {"id": "x", "skill": "x", "cadence": {"hour": 1, "minute": 0}}
+    args = sync.build_job_plist(job, "queue", LOGS, QUEUE)["ProgramArguments"]
+    assert len(args) == 8
+    assert args[7] == ""
+
+
+def test_category_arg_is_passed_through():
+    job = {"id": "voices-ai", "skill": "voices-watcher", "category": "voices-ai",
+           "cadence": {"hour": 7, "minute": 30}}
+    args = sync.build_job_plist(job, "queue", LOGS, QUEUE)["ProgramArguments"]
+    assert args[7] == "voices-ai"
+    assert args[4] == "voices-watcher"  # skill stays a real skill dir
+
+
 def test_two_jobs_on_one_skill_get_distinct_labels_and_logs():
     """Multiple jobs may share a skill; identity comes from `id`, not `skill`.
 

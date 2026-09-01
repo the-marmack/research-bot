@@ -1,4 +1,9 @@
-"""Deterministic helpers for polling YouTube channels as Atom feeds.
+"""Deterministic helpers for ``voices-watcher``: roster shape + YouTube Atom feeds.
+
+Two concerns, kept together because both are the pure, unit-testable half of the
+same skill: the canonical roster-CSV column contract (:data:`ROSTER_COLUMNS`,
+:func:`validate_roster_header`, :func:`is_org_role`) and YouTube channel-feed
+resolution (everything else).
 
 YouTube publishes a per-channel Atom feed at::
 
@@ -190,13 +195,49 @@ def partition_shorts(items):
 
 
 def is_org_role(role):
-    """True if a ``voices.csv`` role marks an organisation rather than a person.
+    """True if a roster role marks an organisation rather than a person.
 
     Convention: roles ending in ``(org)`` — e.g. ``AI security (org)``. Org rows
     are polled for new items but are **not** seeded into ``vault/people/``,
     which is for people.
     """
     return bool(role) and role.strip().lower().endswith("(org)")
+
+
+# --- roster CSV contract -----------------------------------------------------
+# One roster per digest category at vault/_config/rosters/{category}.csv. The
+# column set is fixed so the example file, the curator, and the tests all agree.
+
+ROSTER_COLUMNS = (
+    "handle", "name", "bio_snippet", "role",
+    "substack", "twitter", "youtube", "linkedin", "blog", "podcast",
+    "added_date", "notes",
+)
+
+
+def validate_roster_header(header):
+    """Return None if ``header`` is the canonical roster header, else a reason.
+
+    Order matters: the curator fills cells positionally and must never reorder a
+    human-maintained file, so a reordered header is an error rather than
+    something to accommodate.
+    """
+    if header is None:
+        return "roster has no header row"
+    actual = tuple(h.strip() for h in header)
+    if actual == ROSTER_COLUMNS:
+        return None
+    missing = [c for c in ROSTER_COLUMNS if c not in actual]
+    extra = [c for c in actual if c not in ROSTER_COLUMNS]
+    if missing or extra:
+        parts = []
+        if missing:
+            parts.append(f"missing {missing}")
+        if extra:
+            parts.append(f"unexpected {extra}")
+        return "roster header " + " and ".join(parts)
+    return (f"roster header has the right columns in the wrong order: "
+            f"{list(actual)} != {list(ROSTER_COLUMNS)}")
 
 
 def _main(argv):

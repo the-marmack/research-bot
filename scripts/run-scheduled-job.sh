@@ -12,11 +12,13 @@
 #   $3  skill           (the skill name to invoke, usually = job-id)
 #   $4  timeout-secs    (max seconds; only applied to claude-headless mode)
 #   $5  every_n_weeks   (optional, default 1; wrapper checks week parity if >1)
+#   $6  category        (optional, default ""; names the slice of the skill to run,
+#                        e.g. "voices-security". Empty for uncategorized jobs.)
 
 set -euo pipefail
 
 if [ $# -lt 4 ]; then
-    echo "usage: $0 <job-id> <mode> <skill> <timeout-secs> [every_n_weeks]" >&2
+    echo "usage: $0 <job-id> <mode> <skill> <timeout-secs> [every_n_weeks] [category]" >&2
     exit 64
 fi
 
@@ -25,6 +27,7 @@ MODE="$2"
 SKILL="$3"
 TIMEOUT="$4"
 EVERY_N_WEEKS="${5:-1}"
+CATEGORY="${6:-}"
 
 # All operational paths live in TCC-unprotected locations.
 # LOG_DIR / QUEUE_DIR come from the plist's EnvironmentVariables (baked in by
@@ -45,7 +48,14 @@ log() {
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >> "$LOG_FILE"
 }
 
-log "===== Starting $JOB_ID (mode=$MODE, skill=$SKILL, timeout=${TIMEOUT}s) ====="
+log "===== Starting $JOB_ID (mode=$MODE, skill=$SKILL, timeout=${TIMEOUT}s, category=${CATEGORY:-none}) ====="
+
+# What the skill is asked to do, with or without a category slice.
+if [ -n "$CATEGORY" ]; then
+    RUN_INSTRUCTION="Run the $SKILL skill for the $CATEGORY category"
+else
+    RUN_INSTRUCTION="Run the $SKILL skill"
+fi
 
 # Biweekly check
 if [ "$EVERY_N_WEEKS" -gt 1 ]; then
@@ -79,6 +89,7 @@ source_skill: schedule-runner
 confidence: 3
 job_id: $JOB_ID
 skill: $SKILL
+category: $CATEGORY
 queued_at: $START_TS
 status: queued
 ---
@@ -87,7 +98,7 @@ status: queued
 
 The \`$SKILL\` scheduled agent is due. Run it interactively via Claude Code:
 
-> Run the $SKILL skill
+> $RUN_INSTRUCTION
 
 When done, delete this marker (\`$MARKER\`).
 EOF
@@ -111,12 +122,13 @@ EOF
             log "  ERROR: 'claude' binary not found on PATH"
             EXIT_CODE=127
         else
-            log "  invoking: $CLAUDE_BIN -p \"Run the $SKILL skill now.\""
+            PROMPT="$RUN_INSTRUCTION now."
+            log "  invoking: $CLAUDE_BIN -p \"$PROMPT\""
             TIMEOUT_BIN="$(command -v gtimeout || command -v timeout || true)"
             if [ -n "$TIMEOUT_BIN" ]; then
-                "$TIMEOUT_BIN" "$TIMEOUT" "$CLAUDE_BIN" -p "Run the $SKILL skill now." >> "$LOG_FILE" 2>&1 || EXIT_CODE=$?
+                "$TIMEOUT_BIN" "$TIMEOUT" "$CLAUDE_BIN" -p "$PROMPT" >> "$LOG_FILE" 2>&1 || EXIT_CODE=$?
             else
-                "$CLAUDE_BIN" -p "Run the $SKILL skill now." >> "$LOG_FILE" 2>&1 || EXIT_CODE=$?
+                "$CLAUDE_BIN" -p "$PROMPT" >> "$LOG_FILE" 2>&1 || EXIT_CODE=$?
             fi
             log "  claude exit code: $EXIT_CODE"
         fi

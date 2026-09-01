@@ -29,6 +29,8 @@ This folder holds **skill-read operational configuration** — settings, recipie
 |------|-------------|---------|
 | `email-distribution.md` | [`email-sender`](../../research-bot/.claude/skills/email-sender/SKILL.md) | Markdown bullet list of email recipients — everyone listed gets every scheduled digest |
 | `exec-preferences.md` | [`executive-summary-writer`](../../research-bot/.claude/skills/executive-summary-writer/SKILL.md) | Per-audience preferences (length, voice, format, emphasis) for executive summaries |
+| `digests/{id}.md` | [`voices-watcher`](../../research-bot/.claude/skills/voices-watcher/SKILL.md), `scheduled-agent-runner` | One file per digest category — frontmatter holds `digest` / `email` flags, roster path, cadence, and optional `email_list`; the body's `## Framing` section supplies the why-you-care lens |
+| `rosters/{id}.csv` | [`voices-watcher`](../../research-bot/.claude/skills/voices-watcher/SKILL.md), [`voices-roster-curator`](../../research-bot/.claude/skills/voices-roster-curator/SKILL.md) | The people and channels polled for one category. A handle belongs to exactly one roster |
 
 ## How to add a new config file
 
@@ -39,6 +41,8 @@ This folder holds **skill-read operational configuration** — settings, recipie
 ## Why Markdown not YAML?
 
 YAML in `_config/` doesn't compose with Obsidian — no preview, no link autocomplete, no validation hints. Markdown is the vault's native format. Skills that need structured data either parse Markdown bullets (the cheap-and-readable path used by `email-sender`) or put structured fields in YAML frontmatter (which Obsidian DOES render). Pure standalone `.yml` files are reserved for the toolkit's repo-side config (e.g. `scripts/scheduled-jobs.yml`).
+
+**Tabular data: CSV is permitted.** Roster files under `rosters/*.csv` are the one exception. Obsidian has no native primitive for a 12-column, 60-row table that a human maintains by hand; a Markdown table at that width is unmaintainable, and YAML would be worse. CSV is also what `voices-roster-curator` already reads and writes, and it stays editable in a spreadsheet. The rule stands for everything else: **structured config is Markdown-with-frontmatter, tabular roster data is CSV, and standalone `.yml` remains reserved for repo-side config.**
 
 ## Why not `_meta/`?
 
