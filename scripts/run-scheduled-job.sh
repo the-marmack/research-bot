@@ -26,11 +26,14 @@ SKILL="$3"
 TIMEOUT="$4"
 EVERY_N_WEEKS="${5:-1}"
 
-# All operational paths live in TCC-unprotected locations
+# All operational paths live in TCC-unprotected locations.
+# LOG_DIR / QUEUE_DIR come from the plist's EnvironmentVariables (baked in by
+# schedule-sync.py from scheduled-jobs.yml). The fallbacks keep manual
+# invocation working when the vars aren't set.
 BASE_DIR="$HOME/Library/Application Support/research-bot"
 STATE_DIR="$BASE_DIR/state"
-LOG_DIR="$HOME/Library/Logs/research-bot"
-QUEUE_DIR="$HOME/Obsidian/Research-Brain/_inbox/scheduled-jobs"
+LOG_DIR="${RESEARCH_BOT_LOG_DIR:-$HOME/Library/Logs/research-bot}"
+QUEUE_DIR="${RESEARCH_BOT_QUEUE_DIR:-$HOME/Obsidian/Research-Brain/_inbox/scheduled-jobs}"
 
 mkdir -p "$STATE_DIR" "$LOG_DIR" "$QUEUE_DIR"
 

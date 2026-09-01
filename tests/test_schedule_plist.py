@@ -5,13 +5,14 @@ from _util import SCRIPTS, load_module
 
 sync = load_module(SCRIPTS / "schedule-sync.py", "schedule_sync_plist")
 LOGS = Path("/tmp/logs")
+QUEUE = Path("/tmp/queue")
 
 
 def test_build_job_plist_shape():
     job = {"id": "daily-cve-digest", "skill": "daily-cve-digest",
            "cadence": {"hour": 7, "minute": 0, "weekdays_only": True},
            "timeout_seconds": 600}
-    d = sync.build_job_plist(job, "queue", LOGS)
+    d = sync.build_job_plist(job, "queue", LOGS, QUEUE)
     assert d["Label"].endswith("daily-cve-digest")
     assert d["RunAtLoad"] is False
     assert d["ProgramArguments"][0] == "/bin/bash"
@@ -26,25 +27,59 @@ def test_build_job_plist_shape():
 def test_single_interval_is_dict_not_list():
     job = {"id": "voices-watcher", "skill": "voices-watcher",
            "cadence": {"hour": 7, "minute": 30}}
-    d = sync.build_job_plist(job, "queue", LOGS)
+    d = sync.build_job_plist(job, "queue", LOGS, QUEUE)
     assert d["StartCalendarInterval"] == {"Hour": 7, "Minute": 30}
 
 
 def test_mode_defaults_and_override():
     base = {"id": "x", "skill": "x", "cadence": {"hour": 1, "minute": 0}}
-    assert sync.build_job_plist(base, "queue", LOGS)["ProgramArguments"][3] == "queue"
+    assert sync.build_job_plist(base, "queue", LOGS, QUEUE)["ProgramArguments"][3] == "queue"
     override = dict(base, mode="claude-headless")
-    assert sync.build_job_plist(override, "queue", LOGS)["ProgramArguments"][3] == "claude-headless"
+    assert sync.build_job_plist(
+        override, "queue", LOGS, QUEUE)["ProgramArguments"][3] == "claude-headless"
 
 
 def test_plist_bytes_deterministic():
     job = {"id": "x", "skill": "x", "cadence": {"hour": 1, "minute": 2}}
-    d = sync.build_job_plist(job, "queue", LOGS)
+    d = sync.build_job_plist(job, "queue", LOGS, QUEUE)
     assert sync.plist_bytes(d) == sync.plist_bytes(d)
 
 
 def test_catch_up_plist():
-    d = sync.build_catch_up_plist(LOGS)
+    d = sync.build_catch_up_plist(LOGS, QUEUE)
     assert d["RunAtLoad"] is True
     assert d["StartInterval"] == 3600
     assert d["ProgramArguments"][1].endswith("catch-up-missed-runs.sh")
+
+
+# --- operational paths carried through launchd (Phase 0) ---------------------
+# The wrapper scripts are bash and can't parse scheduled-jobs.yml, so sync
+# resolves log_dir/queue_dir once and passes them via EnvironmentVariables.
+
+def test_job_plist_carries_operational_paths():
+    job = {"id": "x", "skill": "x", "cadence": {"hour": 1, "minute": 0}}
+    env = sync.build_job_plist(job, "queue", LOGS, QUEUE)["EnvironmentVariables"]
+    assert env["RESEARCH_BOT_LOG_DIR"] == str(LOGS)
+    assert env["RESEARCH_BOT_QUEUE_DIR"] == str(QUEUE)
+
+
+def test_catch_up_plist_carries_operational_paths():
+    env = sync.build_catch_up_plist(LOGS, QUEUE)["EnvironmentVariables"]
+    assert env["RESEARCH_BOT_LOG_DIR"] == str(LOGS)
+    assert env["RESEARCH_BOT_QUEUE_DIR"] == str(QUEUE)
+
+
+def test_two_jobs_on_one_skill_get_distinct_labels_and_logs():
+    """Multiple jobs may share a skill; identity comes from `id`, not `skill`.
+
+    This is what makes per-category fan-out onto a single skill possible.
+    """
+    a = sync.build_job_plist(
+        {"id": "voices-ai", "skill": "voices-watcher",
+         "cadence": {"hour": 7, "minute": 30}}, "queue", LOGS, QUEUE)
+    b = sync.build_job_plist(
+        {"id": "voices-security", "skill": "voices-watcher",
+         "cadence": {"hour": 7, "minute": 35}}, "queue", LOGS, QUEUE)
+    assert a["Label"] != b["Label"]
+    assert a["StandardOutPath"] != b["StandardOutPath"]
+    assert a["ProgramArguments"][4] == b["ProgramArguments"][4] == "voices-watcher"
