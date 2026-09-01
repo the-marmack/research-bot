@@ -34,15 +34,21 @@ Every scheduled-agent run follows this exact sequence:
 8.  write_digest()            ← digest-writer → vault-writer.write_digest
 9.  curate_findings()         ← stage promotable claims to _inbox/ → memory-curator
 10. mark_surfaced()           ← seen-tracker.mark_surfaced for every item written
-11. maybe_email()             ← email-sender.auto_send(path, "digest") — sends
-                                the digest to every recipient parsed from the
-                                vault distribution list
+11. maybe_email()             ← email-sender.auto_send(path, "digest", list_name)
+                                — sends the digest to the recipients resolved
+                                from the vault distribution list; skipped
+                                entirely when the category's email flag is false
 12. emit_summary()            ← one-line runner-log entry (includes email status)
 ```
 
 Steps 5–6 are optional per agent. A pure "what shipped this week" digest (changelog aggregator) may not need claim-level verification — the source IS the authority. A regulator-watch digest with novel interpretations does need it.
 
-Step 11 (`maybe_email`) is always invoked for any digest surface. It loads the recipient list from `vault/_config/email-distribution.md` and sends the digest to every parsed recipient. If the distribution file is missing or empty, `maybe_email` stop-and-reports and step 12's summary line shows `email_failed=<reason>`. Email failure does NOT roll back the vault write — the note is durable; email is a delivery channel only.
+Step 11 (`maybe_email`) is invoked for any digest surface, with two gates:
+
+1. **The category's `email` flag.** When the firing category's config sets `email: false` (a vault-only category), step 11 is skipped entirely and step 12 reports `emailed=skipped(category email off)`. A category with no config — every pre-category agent — behaves as before and proceeds to send.
+2. **The category's `email_list`.** When set, it selects one named segment from `vault/_config/email-distribution.md`; when absent, the digest goes to every recipient across all sections. A segment that doesn't exist or is empty stop-and-reports rather than falling back to the full list.
+
+If the distribution file is missing or empty, `maybe_email` stop-and-reports and step 12's summary line shows `email_failed=<reason>`. Email failure does NOT roll back the vault write — the note is durable; email is a delivery channel only.
 
 ## Per-agent config
 
@@ -82,7 +88,9 @@ A single summary line emitted to stdout (or captured by the caller):
 The `emailed=` segment reports per-recipient delivery (`sent/total`). Possible values:
 - `emailed=3/3` — full delivery to every parsed recipient.
 - `emailed=2/3` — partial delivery; skipped recipients appear in the failures section.
-- `email_failed=<reason>` — config or SMTP error from `email-sender` (missing distribution list, empty list, missing app password, SMTP auth failure, etc.). The vault write still succeeded; only the send failed.
+- `emailed=2/2(security)` — delivered to a named segment; the segment name is reported so the summary makes the narrower audience visible.
+- `emailed=skipped(category email off)` — the firing category sets `email: false`. Not a failure: the digest is written and readable in Obsidian, it just isn't sent.
+- `email_failed=<reason>` — config or SMTP error from `email-sender` (missing distribution list, empty list, unknown or empty named segment, missing app password, SMTP auth failure, etc.). The vault write still succeeded; only the send failed.
 
 Plus the digest file in the vault and any `_inbox/<agent_name>/` stages for `memory-curator` to process on its next sweep.
 

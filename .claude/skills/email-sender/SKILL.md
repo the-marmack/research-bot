@@ -36,12 +36,16 @@ If either is missing, the skill stops and reports — never silently drops.
 
 ## Helpers
 
-### `send_note(note_path, subject_override=None)`
+### `send_note(note_path, subject_override=None, list_name=None)`
 
 The primary action. Steps:
 
 1. Resolve `note_path` to an absolute path; confirm the file exists.
-2. Load and parse `vault/_config/email-distribution.md` (see [Parsing](#parsing)).
+2. Load `vault/_config/email-distribution.md` and resolve the send-to set with
+   `email_recipients.recipients_for(text, list_name)` (see [Parsing](#parsing)).
+   `list_name=None` (the default) sends to everyone. A named segment sends only to
+   that segment; an unknown or empty one stop-and-reports (cases #9/#10) rather than
+   falling back to the full list.
 3. Confirm `~/.config/research-bot/env` carries `GMAIL_SEND_ADDRESS` and `GMAIL_APP_PASSWORD` (the script re-reads them, but check here so a missing credential surfaces as a clean stop-and-report referencing the setup helper).
 4. Derive the **Subject**: `subject_override` if given, else derive from the note (see [Subject derivation](#subject-derivation)).
 5. Per-recipient validation: drop any address that doesn't match `^[^\s@]+@[^\s@]+\.[^\s@]+$` (record it for the `skipped` list). A single bad entry doesn't lose the rest.
@@ -70,28 +74,32 @@ Return:
 }
 ```
 
-### `prompt_then_send(note_path)`
+### `prompt_then_send(note_path, list_name=None)`
 
 For research notes. Asks the user, then calls `send_note` or skips.
 
-1. Load + parse the distribution list (so the prompt can show the recipient count).
-2. Ask the user: `"Send this research note to your distribution list (N recipients)? [y/n]"` — also show the first 3 recipients to confirm the right list.
-3. Parse the answer. `y` / `yes` / `send` → call `send_note(note_path)`. Anything else → skip.
+1. Resolve the send-to set (so the prompt can show the recipient count).
+2. Ask the user: `"Send this research note to your distribution list (N recipients)? [y/n]"` — also show the first 3 recipients to confirm the right list. When `list_name` is given, name the segment in the prompt.
+3. Parse the answer. `y` / `yes` / `send` → call `send_note(note_path, list_name=list_name)`. Anything else → skip.
 4. Return `{action: "sent" | "skipped", ...}`.
 
-### `auto_send(note_path, surface)`
+### `auto_send(note_path, surface, list_name=None)`
 
 Non-interactive path for `scheduled-agent-runner` step 11.
 
 1. If `surface != "digest"` → no-op, return `{action: "noop", reason: "non-digest surface"}`.
-2. Load + parse the distribution list. Missing/empty → stop-and-report (surfaces in runner summary as `email_failed=...`).
-3. Call `send_note(note_path)`. Return its result with `action: "sent"`.
+2. Resolve the send-to set. Missing/empty → stop-and-report (surfaces in runner summary as `email_failed=...`).
+3. Call `send_note(note_path, list_name=list_name)`. Return its result with `action: "sent"`.
 
 This helper **never prompts** — non-interactive scheduled context. Misconfig still stop-and-reports per the rules below; the digest itself remains written.
 
-### `show_list()`
+The runner passes the firing category's `email_list`, and skips this call entirely when the category's `email` flag is false — so a vault-only category never reaches here.
+
+### `show_list(list_name=None)`
 
 User-facing diagnostic. Loads, parses, and prints the distribution-list contents — what would happen on the next send. No mail traffic. Useful before relying on auto-send.
+
+With no argument, print **every segment** with its members plus the union that an unsegmented send would reach. With `list_name`, print just that segment (and stop-and-report if it doesn't exist, listing the ones that do).
 
 ## Parsing
 
@@ -99,23 +107,32 @@ The distribution-list file is Markdown. The parser scopes recipient extraction t
 
 1. Strip YAML frontmatter (the `---\n...\n---\n` block at the top, if present).
 2. Strip HTML comments (`<!-- ... -->`) — anything inside is ignored, so commenting out a bullet pauses the recipient.
-3. Find the `## Recipients` heading (H2, exact title, case-insensitive). Begin recipient-parsing **only** at the line after this heading.
-4. Stop recipient-parsing at the next `## ` heading (any title) or at end-of-file. Subsections inside `## Recipients` using `###` headings remain in-scope (groupings inside the list are fine).
+3. Find a recipients heading (H2, case-insensitive). `## Recipients` opens the **default** segment; `## Recipients: <name>` opens a **named** segment (`## Recipients: AI` → `ai`). Begin recipient-parsing **only** at the line after such a heading.
+4. Stop recipient-parsing at the next `## ` heading (any title) or at end-of-file — unless that heading is itself a recipients heading, which opens the next segment. Subsections using `###` headings remain in-scope (groupings inside a segment are fine).
 5. Inside the active region, a line contributes a recipient if:
    - It starts with `-` or `*` (a Markdown bullet) AND contains an email-shaped substring, OR
    - The entire line, after stripping whitespace, IS an email-shaped substring (no leading bullet required).
 6. Lines starting with ` ``` ` (fenced code block boundary) are skipped, and the parser ignores everything between the open and close fence — code-block content is never a recipient.
 7. Email regex: `\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b`.
 8. Multiple emails on one bullet line are all extracted (`- alice@example.com, bob@example.com` works).
-9. Case-insensitive deduplication on the parsed list.
+9. Case-insensitive deduplication, applied per segment and again across the union.
 
-Sections OTHER than `## Recipients` — including `## How to edit`, `## Notes`, the document intro, etc. — are scanned for emails for diagnostics only; addresses found there are reported by `show_list` as "ignored (outside ## Recipients)" but never sent to. This lets the template carry inline format examples (`- you@gmail.com`) without making them live entries.
+`parse_recipients` returns `{recipients, ignored, segments}`. **`recipients` is the union of every segment**, so a file using only the bare `## Recipients` heading behaves exactly as it did before segments existed — and splitting a list into named sections and deleting the bare heading never silently drops anyone from an unsegmented send. `segments` maps each name to its own members.
+
+Sections OTHER than a recipients heading — `## How to edit`, `## Notes`, the document intro, etc. — are scanned for emails for diagnostics only; addresses found there are reported by `show_list` as "ignored (outside ## Recipients)" but never sent to. This lets the template carry inline format examples (`- you@gmail.com`) without making them live entries.
+
+**Resolving a send** uses `recipients_for(text, list_name)`, never the raw parse:
+
+- `list_name=None` → the union (`segment: "all"`).
+- A known name → that segment alone.
+- An unknown or empty name → **error, never a fallback to the union.** Silently blasting a niche digest to the whole list is the failure mode segments exist to prevent.
 
 Validation:
 
 - File missing → stop-and-report (case #1 below).
-- `## Recipients` heading missing → stop-and-report: `"email-distribution.md is missing the '## Recipients' heading. The skill only extracts addresses from bullets under that heading."`
+- No recipients heading at all → stop-and-report: `"email-distribution.md is missing the '## Recipients' heading. The skill only extracts addresses from bullets under that heading."`
 - Heading present but no parsed recipients → stop-and-report: `"'## Recipients' section is empty. Add at least one '- you@example.com' line under that heading."`
+- Named segment requested but absent or empty → cases #9/#10 below.
 
 ## Stop and report — enumerated cases
 
@@ -129,6 +146,10 @@ Each surfaces a structured error to the caller (and to the runner summary line f
 6. **SMTP auth failure** → `"Gmail SMTP auth failed for <send-address>. App password may be expired or revoked — regenerate at https://myaccount.google.com/apppasswords."`
 7. **SMTP send failure (network, server-level bounce)** → `"Send failed: <smtplib error>. Per-recipient results: [sent=N, skipped=M]."`
 8. **Invalid email format on a recipient** → skip that recipient, continue with the rest, surface in the return `skipped` list (NOT a stop-and-report — degraded delivery proceeds).
+9. **Named segment not found** → `"email-distribution.md has no '## Recipients: <name>' section. Sections found: [default, ai, security]. Either add that section or clear email_list in the category config."`
+10. **Named segment empty** → `"'## Recipients: <name>' parsed to zero recipients. Add at least one '- you@example.com' bullet under that heading."`
+
+Cases #9 and #10 never degrade to sending to everyone — an unresolvable segment means no send at all.
 
 The vault note remains written even if email fails. Email is a delivery channel, not a write-blocker.
 
