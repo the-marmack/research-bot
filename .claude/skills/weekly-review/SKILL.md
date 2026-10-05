@@ -16,7 +16,7 @@ agent_name: weekly-review
 cadence: weekly
 schedule_hint: "Sunday 18:00 local"   # see open question in skills-plan.md re: Sun PM vs Fri PM vs Mon AM
 source_filter:
-  custom: vault                         # NOT source-registry, NOT voices.csv — the vault itself
+  custom: vault                         # NOT source-registry, NOT a roster — the vault itself
   surfaces:
     - digests
     - research

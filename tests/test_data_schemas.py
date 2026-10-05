@@ -33,6 +33,13 @@ def test_scheduled_jobs_yml_valid():
         assert ("hour" in cad) or ("months" in cad) or ("day" in cad) or ("day_of_week" in cad)
         if "mode" in job:
             assert job["mode"] in {"queue", "claude-headless"}
+        if "category" in job:
+            # The category is passed to the wrapper as $6 and names the slice of
+            # the skill to run. It must equal the job id — that one string is
+            # also the config stem, roster stem, and digest filename segment.
+            assert isinstance(job["category"], str) and job["category"]
+            assert job["category"] == job["id"], (
+                f"{job['id']}: category {job['category']!r} must equal the job id")
 
 
 def test_stack_yml_valid():

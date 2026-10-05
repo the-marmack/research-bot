@@ -137,3 +137,146 @@ def test_live_distribution_list_parses():
     out = parse(live.read_text(encoding="utf-8"))
     assert out["recipients"], "live distribution list parsed to zero recipients"
     assert all(er.validate(a) for a in out["recipients"])
+
+
+# --- named segments (Phase 2) -------------------------------------------------
+# `## Recipients` is the default segment; `## Recipients: <name>` opens a named
+# one. `recipients` stays the union so unsegmented files behave as they always did.
+
+def test_bare_recipients_is_the_default_segment():
+    doc = """## Recipients
+- alice@example.com
+"""
+    out = parse(doc)
+    assert out["segments"] == {"default": ["alice@example.com"]}
+    assert out["recipients"] == ["alice@example.com"]
+
+
+def test_named_segment_parses():
+    doc = """## Recipients: AI
+- ai@example.com
+"""
+    out = parse(doc)
+    assert out["segments"] == {"ai": ["ai@example.com"]}
+
+
+def test_multiple_named_segments_are_separate():
+    doc = """## Recipients: AI
+- ai@example.com
+
+## Recipients: Security
+- sec@example.com
+"""
+    out = parse(doc)
+    assert out["segments"]["ai"] == ["ai@example.com"]
+    assert out["segments"]["security"] == ["sec@example.com"]
+
+
+def test_segment_names_are_case_insensitive():
+    doc = """## RECIPIENTS: Security
+- sec@example.com
+"""
+    assert "security" in parse(doc)["segments"]
+
+
+def test_recipients_is_the_union_of_all_segments():
+    """The backward-compat guarantee: splitting into named sections and dropping
+    the bare heading must not silently lose anyone from an unsegmented send."""
+    doc = """## Recipients: AI
+- ai@example.com
+
+## Recipients: Security
+- sec@example.com
+"""
+    assert parse(doc)["recipients"] == ["ai@example.com", "sec@example.com"]
+
+
+def test_union_dedups_a_person_in_two_segments():
+    doc = """## Recipients: AI
+- both@example.com
+
+## Recipients: Security
+- both@example.com
+"""
+    out = parse(doc)
+    assert out["recipients"] == ["both@example.com"]
+    assert out["segments"]["ai"] == out["segments"]["security"] == ["both@example.com"]
+
+
+def test_subsection_stays_in_scope_inside_a_named_segment():
+    doc = """## Recipients: AI
+### Researchers
+- r@example.com
+"""
+    assert parse(doc)["segments"]["ai"] == ["r@example.com"]
+
+
+def test_non_recipients_h2_still_closes_scope_and_ignores():
+    doc = """## Recipients: AI
+- ai@example.com
+
+## Notes
+- someone@example.com
+"""
+    out = parse(doc)
+    assert out["segments"]["ai"] == ["ai@example.com"]
+    assert out["ignored"] == ["someone@example.com"]
+
+
+def test_empty_segment_name_is_out_of_scope():
+    """`## Recipients:` with nothing after the colon names no segment."""
+    doc = """## Recipients:
+- nobody@example.com
+"""
+    out = parse(doc)
+    assert out["segments"] == {}
+    assert out["ignored"] == ["nobody@example.com"]
+
+
+# --- recipients_for: resolving an actual send --------------------------------
+
+def test_recipients_for_no_name_returns_union():
+    doc = """## Recipients: AI
+- ai@example.com
+
+## Recipients: Security
+- sec@example.com
+"""
+    out = er.recipients_for(doc)
+    assert out["error"] is None
+    assert out["segment"] == "all"
+    assert out["recipients"] == ["ai@example.com", "sec@example.com"]
+
+
+def test_recipients_for_named_returns_only_that_segment():
+    doc = """## Recipients: AI
+- ai@example.com
+
+## Recipients: Security
+- sec@example.com
+"""
+    out = er.recipients_for(doc, "ai")
+    assert out["error"] is None
+    assert out["recipients"] == ["ai@example.com"]
+
+
+def test_recipients_for_unknown_segment_errors_and_does_not_fall_back():
+    """A typo must not blast a niche digest to the whole list."""
+    doc = """## Recipients
+- everyone@example.com
+"""
+    out = er.recipients_for(doc, "typo")
+    assert out["error"] is not None
+    assert out["recipients"] == []
+    assert "default" in out["error"]  # names the segments that do exist
+
+
+def test_recipients_for_empty_segment_errors():
+    doc = """## Recipients: AI
+
+## Recipients: Security
+- sec@example.com
+"""
+    out = er.recipients_for(doc, "ai")
+    assert out["error"] is not None
+    assert out["recipients"] == []

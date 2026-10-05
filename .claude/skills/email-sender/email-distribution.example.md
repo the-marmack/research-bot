@@ -34,6 +34,23 @@ To **pause** an entry without deleting it, wrap the bullet in an HTML comment in
 
 You can write whatever prose, notes, or additional sections you want above or below `## Recipients` — only that section's bullets become recipients.
 
+## Optional: narrower lists per digest
+
+If some digests should reach a smaller audience than others, add **named segments** alongside (or instead of) the bare list:
+
+```
+## Recipients: Security
+- ciso@example.com — CISO
+- appsec-lead@example.com
+
+## Recipients: AI
+- vp.eng@example.com — VP Eng
+```
+
+Point a digest at one by setting `email_list: security` in its category config (`vault/_config/digests/<id>.md`). A digest with no `email_list` goes to **everyone across all sections**, so adding segments never quietly narrows an existing send. A digest naming a segment that doesn't exist **fails loudly** rather than falling back to everyone.
+
+Segment names are case-insensitive (`## Recipients: Security` → `security`). A person can appear in more than one segment; they receive one copy per digest, not duplicates within a digest.
+
 ## Recipients
 
 - you@gmail.com — Self (always include this — useful for verification + your own copy)

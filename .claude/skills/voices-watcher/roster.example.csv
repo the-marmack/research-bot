@@ -1,0 +1,4 @@
+handle,name,bio_snippet,role,substack,twitter,youtube,linkedin,blog,podcast,added_date,notes
+example-writer,Example Writer,"Writes a weekly newsletter about a topic you care about. Replace this row.",practitioner,https://example.substack.com,,,,,,2026-01-01,example row — delete once you add real voices
+example-channel,Example Channel,"Publishes video explainers. YouTube is polled via the per-channel Atom feed — use the /channel/UC... form, not @handle.",educator,,,https://www.youtube.com/channel/UCexampleexampleexample,,https://example.com,,2026-01-01,example row — delete once you add real voices
+example-org,Example Foundation,"An organisation rather than a person. A role ending in (org) is polled normally but never seeded into people/.",security (org),,,,,https://example.org,,2026-01-01,example row — the (org) suffix is load-bearing

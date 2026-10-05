@@ -133,7 +133,7 @@ def main():
 
     # State + logs live in the deployed location (TCC-unprotected). Status
     # reads from the deployed paths so it shows the same numbers launchd uses.
-    log_dir = LOG_DIR_DEFAULT
+    log_dir = Path(cfg.get("log_dir", str(LOG_DIR_DEFAULT))).expanduser()
     state_dir = DEPLOY_STATE_DIR
     default_mode = cfg.get("default_mode", "queue")
     catch_up_enabled = cfg.get("catch_up_on_login", True)

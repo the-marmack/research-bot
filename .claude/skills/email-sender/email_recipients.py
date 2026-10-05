@@ -6,12 +6,17 @@ SKILL.md "## Parsing". Pure string->list logic so it is unit-testable and lives
 in exactly one place; the send flow calls this instead of re-deriving the
 parser ad hoc on every invocation.
 
-CLI: `python email_recipients.py <path-to-email-distribution.md>` prints
-`{"recipients": [...], "ignored": [...]}` as JSON. `recipients` are the
-extracted, case-insensitively de-duplicated addresses under the `## Recipients`
-heading; `ignored` are email-shaped strings found OUTSIDE that section
-(diagnostic only — never sent to). Apply `validate()` per recipient before
-sending; a malformed entry is skipped, not fatal.
+CLI: `python email_recipients.py <path-to-email-distribution.md> [--list NAME]`
+prints `{"recipients": [...], "ignored": [...], "segments": {...}}` as JSON.
+`recipients` are the extracted, case-insensitively de-duplicated addresses under
+any `## Recipients` heading; `ignored` are email-shaped strings found OUTSIDE
+those sections (diagnostic only — never sent to). Apply `validate()` per
+recipient before sending; a malformed entry is skipped, not fatal.
+
+A bare `## Recipients` heading is the default segment. `## Recipients: AI`
+opens a named segment ("ai"). `recipients` is the UNION of the default segment
+and every named one, so a file using only the bare heading behaves exactly as it
+did before segments existed. Use `recipients_for()` to resolve an actual send.
 """
 import json
 import re
@@ -51,20 +56,41 @@ def _dedup_ci(items, already=None):
     return out, seen
 
 
+DEFAULT_SEGMENT = "default"
+
+
+def segment_name(h2_text):
+    """Resolve an H2's title to a segment name, or None if out of scope.
+
+    'Recipients'      -> 'default'
+    'Recipients: AI'  -> 'ai'
+    anything else     -> None  (closes the recipient scope)
+    """
+    t = h2_text.strip().lower()
+    if t == "recipients":
+        return DEFAULT_SEGMENT
+    if t.startswith("recipients:"):
+        return t[len("recipients:"):].strip() or None
+    return None
+
+
 def parse_recipients(text):
     """Parse a distribution-list Markdown doc.
 
-    Returns {"recipients": [...], "ignored": [...]}:
-      - recipients: addresses under the `## Recipients` H2 (bullets, or a line
-        that is itself an email), extracted and case-insensitively de-duped.
-      - ignored: email-shaped strings found outside `## Recipients` (diagnostic).
+    Returns {"recipients": [...], "ignored": [...], "segments": {...}}:
+      - segments: {name: [addresses]} — one entry per `## Recipients[: name]`
+        H2 present in the doc, each case-insensitively de-duped.
+      - recipients: the UNION across every segment, de-duped, order-preserving.
+        A doc with only a bare `## Recipients` therefore yields exactly what it
+        did before segments existed.
+      - ignored: email-shaped strings outside any recipients section (diagnostic).
     """
     text = strip_frontmatter(text)
     text = COMMENT_RE.sub("", text)
 
-    in_recipients = False
+    current = None
     in_fence = False
-    recips = []
+    per_segment = {}
     ignored = []
 
     for raw in text.splitlines():
@@ -74,38 +100,89 @@ def parse_recipients(text):
             continue
         if in_fence:
             continue
-        if s.startswith("## "):          # H2 opens/closes the Recipients scope
-            in_recipients = s[3:].strip().lower() == "recipients"
+        if s.startswith("## "):          # H2 opens/closes a recipients scope
+            current = segment_name(s[3:])
+            if current is not None:
+                per_segment.setdefault(current, [])
             continue
         # `###` subsections stay in scope; other lines fall through to matching.
         emails = EMAIL_RE.findall(s)
         if not emails:
             continue
-        if in_recipients:
+        if current is not None:
             is_bullet = s.startswith("-") or s.startswith("*")
             whole_is_email = EMAIL_RE.fullmatch(s) is not None
             if is_bullet or whole_is_email:
-                recips.extend(emails)
+                per_segment[current].extend(emails)
         else:
             ignored.extend(emails)
 
-    recipients, seen = _dedup_ci(recips)
+    segments = {}
+    for name, addrs in per_segment.items():
+        segments[name], _ = _dedup_ci(addrs)
+
+    union = [a for addrs in per_segment.values() for a in addrs]
+    recipients, seen = _dedup_ci(union)
     ignored_dedup, _ = _dedup_ci(ignored, already=seen)
-    return {"recipients": recipients, "ignored": ignored_dedup}
+    return {"recipients": recipients, "ignored": ignored_dedup, "segments": segments}
+
+
+def recipients_for(text, list_name=None):
+    """Resolve the actual send-to set for a digest.
+
+    Returns {"recipients": [...], "segment": str, "error": str|None}.
+
+    `list_name=None` sends to the union (today's behaviour). A named list
+    resolves to that segment alone. An unknown or empty segment is an ERROR and
+    never falls back to the union — silently blasting a niche digest to the full
+    list is the failure mode segments exist to prevent.
+    """
+    parsed = parse_recipients(text)
+    segments = parsed["segments"]
+
+    if list_name is None:
+        return {"recipients": parsed["recipients"], "segment": "all", "error": None}
+
+    key = list_name.strip().lower()
+    if key not in segments:
+        found = ", ".join(sorted(segments)) or "(none)"
+        return {"recipients": [], "segment": key, "error": (
+            f"email-distribution.md has no '## Recipients: {list_name}' section. "
+            f"Sections found: [{found}]. Either add that section or clear "
+            f"email_list in the category config.")}
+    if not segments[key]:
+        return {"recipients": [], "segment": key, "error": (
+            f"'## Recipients: {list_name}' parsed to zero recipients. Add at "
+            f"least one '- you@example.com' bullet under that heading.")}
+    return {"recipients": segments[key], "segment": key, "error": None}
 
 
 def main(argv):
-    if len(argv) != 2:
-        print(json.dumps({"error": "usage: email_recipients.py <dist-file>"}))
+    args = argv[1:]
+    list_name = None
+    if "--list" in args:
+        i = args.index("--list")
+        if i + 1 >= len(args):
+            print(json.dumps({"error": "--list requires a segment name"}))
+            return 2
+        list_name = args[i + 1]
+        del args[i:i + 2]
+    if len(args) != 1:
+        print(json.dumps(
+            {"error": "usage: email_recipients.py <dist-file> [--list NAME]"}))
         return 2
     try:
-        with open(argv[1], encoding="utf-8") as f:
+        with open(args[0], encoding="utf-8") as f:
             text = f.read()
     except OSError as e:
-        print(json.dumps({"error": f"cannot read {argv[1]}: {e}"}))
+        print(json.dumps({"error": f"cannot read {args[0]}: {e}"}))
         return 1
-    print(json.dumps(parse_recipients(text)))
-    return 0
+    if list_name is None:
+        print(json.dumps(parse_recipients(text)))
+        return 0
+    resolved = recipients_for(text, list_name)
+    print(json.dumps(resolved))
+    return 1 if resolved["error"] else 0
 
 
 if __name__ == "__main__":

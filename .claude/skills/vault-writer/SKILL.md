@@ -57,10 +57,12 @@ Each helper takes a structured input, validates against the schema, computes the
 - `topic` must come from the controlled research-topic vocabulary in [`vault-conventions`](../vault-conventions/SKILL.md); a new topic requires a `vault/decisions/` note first — reject writes to unknown topics (stop and report).
 - **Idempotency**: same-day same-slug → suffix `-2`, `-3`, …
 
-### `write_digest(skill, cadence, period_start, period_end, body, …)`
-- Path: `digests/{cadence}/{period_end}-{skill}.md`
+### `write_digest(skill, cadence, period_start, period_end, body, variant=None, …)`
+- Path: `digests/{cadence}/{period_end}-{variant or skill}.md`
 - Schema: `digest.yml`
-- **Idempotency**: one digest per skill per period; collision is an error (caller's `period_end` is probably wrong).
+- Frontmatter: `source_skill` is **always** the real skill name; `digest_id` carries `variant or skill` (the filename segment).
+- `variant` lets one skill emit several digests per period — one per category. Pass the category id (e.g. `voices-security`). Never pass a fake skill name to get a distinct filename: `source_skill` would then name a skill that doesn't exist.
+- **Idempotency**: one digest per `(cadence, period_end, variant or skill)`; collision is an error (caller's `period_end` is probably wrong).
 
 ### `write_person(handle, name, bio_snippet, role, surfaces, …)`
 - Path: `people/{handle}.md` (handle lowercase, no `@`)

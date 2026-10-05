@@ -47,6 +47,7 @@ DEPLOY_STATE_DIR = BASE_DIR / "state"
 DEPLOY_CFG = BASE_DIR / "scheduled-jobs.yml"
 CATCH_UP_LABEL = f"{PLIST_PREFIX}catch-up"
 LOG_DIR_DEFAULT = Path.home() / "Library" / "Logs" / "research-bot"
+QUEUE_DIR_DEFAULT = Path.home() / "Obsidian" / "Research-Brain" / "_inbox" / "scheduled-jobs"
 
 # Files in <repo>/scripts/ that get DEPLOYED to ~/Library/Application Support/research-bot/scripts/
 DEPLOYABLE_SCRIPTS = (
@@ -92,17 +93,33 @@ def cadence_to_calendar_intervals(cadence: dict) -> list:
     return out
 
 
-def build_job_plist(job: dict, default_mode: str, log_dir: Path) -> dict:
+def plist_env(log_dir: Path, queue_dir: Path) -> dict:
+    """Operational paths baked into every plist.
+
+    The wrapper scripts are bash and cannot parse scheduled-jobs.yml, so sync
+    resolves `log_dir` / `queue_dir` once and passes them through launchd. Each
+    script keeps a hardcoded fallback so manual invocation still works.
+    """
+    return {
+        "RESEARCH_BOT_LOG_DIR": str(log_dir),
+        "RESEARCH_BOT_QUEUE_DIR": str(queue_dir),
+    }
+
+
+def build_job_plist(job: dict, default_mode: str, log_dir: Path, queue_dir: Path) -> dict:
     job_id = job["id"]
     skill = job["skill"]
     mode = job.get("mode", default_mode)
     timeout = int(job.get("timeout_seconds", 600))
     every_n = int(job["cadence"].get("every_n_weeks", 1))
 
+    # $6 (category) is always appended, empty for uncategorized jobs, so the
+    # wrapper's `set -u` never sees an unset positional.
     program_args = [
         "/bin/bash",
         str(DEPLOY_SCRIPTS_DIR / "run-scheduled-job.sh"),
         job_id, mode, skill, str(timeout), str(every_n),
+        str(job.get("category", "")),
     ]
     log_file = str(log_dir / f"{job_id}.log")
     intervals = cadence_to_calendar_intervals(job["cadence"])
@@ -111,6 +128,7 @@ def build_job_plist(job: dict, default_mode: str, log_dir: Path) -> dict:
     return {
         "Label": f"{PLIST_PREFIX}{job_id}",
         "ProgramArguments": program_args,
+        "EnvironmentVariables": plist_env(log_dir, queue_dir),
         "StartCalendarInterval": sci,
         "StandardOutPath": log_file,
         "StandardErrorPath": log_file,
@@ -118,7 +136,7 @@ def build_job_plist(job: dict, default_mode: str, log_dir: Path) -> dict:
     }
 
 
-def build_catch_up_plist(log_dir: Path) -> dict:
+def build_catch_up_plist(log_dir: Path, queue_dir: Path) -> dict:
     log_file = str(log_dir / "catch-up.log")
     return {
         "Label": CATCH_UP_LABEL,
@@ -126,6 +144,7 @@ def build_catch_up_plist(log_dir: Path) -> dict:
             "/bin/bash",
             str(DEPLOY_SCRIPTS_DIR / "catch-up-missed-runs.sh"),
         ],
+        "EnvironmentVariables": plist_env(log_dir, queue_dir),
         "RunAtLoad": True,
         "StartInterval": 3600,
         "StandardOutPath": log_file,
@@ -232,6 +251,7 @@ def main():
 
     default_mode = cfg.get("default_mode", "queue")
     log_dir = Path(os.path.expanduser(cfg.get("log_dir", str(LOG_DIR_DEFAULT))))
+    queue_dir = Path(os.path.expanduser(cfg.get("queue_dir", str(QUEUE_DIR_DEFAULT))))
     catch_up_enabled = cfg.get("catch_up_on_login", True)
 
     LAUNCH_AGENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -259,9 +279,9 @@ def main():
     desired = {}
     for job in cfg["jobs"]:
         label = f"{PLIST_PREFIX}{job['id']}"
-        desired[label] = build_job_plist(job, default_mode, log_dir)
+        desired[label] = build_job_plist(job, default_mode, log_dir, queue_dir)
     if catch_up_enabled:
-        desired[CATCH_UP_LABEL] = build_catch_up_plist(log_dir)
+        desired[CATCH_UP_LABEL] = build_catch_up_plist(log_dir, queue_dir)
 
     counts = {"created": 0, "updated": 0, "removed": 0, "unchanged": 0}
     actions = []

@@ -43,7 +43,7 @@ The status defaults to `proposed`; the user can edit to `accepted` later. Most q
 
 → `vault/people/{slug-of-name}.md`
 → Template: `.templates/qc-person.md`
-→ `vault-writer.write_person(handle=<slug-of-name>, name=<name>, ...)` — **patch mode**: if the person already exists (e.g., from `voices.csv`), append "what you learned" to the body's "What I learned" section, don't overwrite.
+→ `vault-writer.write_person(handle=<slug-of-name>, name=<name>, ...)` — **patch mode**: if the person already exists (e.g., from a voice roster), append "what you learned" to the body's "What I learned" section, don't overwrite.
 
 ### 3. Insight
 
@@ -125,7 +125,7 @@ Plus the [[wikilink]] form so the user can paste it elsewhere: `[[2026-06-20-ski
 Parse each of these 5 inputs without error and route to the correct surface:
 
 1. `Decision: weekly-review runs Sunday PM. Context: end-of-week reflection beats start-of-week planning for this user. Owner: me.` → `vault/decisions/2026-06-20-weekly-review-runs-sunday-pm.md`
-2. `Lenny Rachitsky — pivoted from describing to building research tools for PMs.` → patches `vault/people/lennysan.md` (Lenny exists from voices.csv).
+2. `Lenny Rachitsky — pivoted from describing to building research tools for PMs.` → patches `vault/people/lennysan.md` (Lenny exists from a voice roster).
 3. `Insight: the Fable 5 export-control story plus Huryn's eval together justify a written internal note before any team considers Fable 5 adoption. Triggered by: noticing the cross-digest connection in the 2026-06-20 weekly review.` → `vault/insights/fable-5-internal-note-before-adoption.md`
 4. `Meeting with security architecture team about Copilot AGENTS.md rollout. Key points: golden-path template needs an AGENTS.md stub, secure-coding patterns mirror from CONTRIBUTING.md. Action items: draft stub by EOW, circulate to repo template owners.` → `vault/events/2026-06-20/copilot-agents-md-rollout.md`
 5. `Saving from Claude: the "default to refuted=true if uncertain" prompt-engineering line is load-bearing — without it, refute-prompts default to confirmation.` → `vault/insights/default-to-refuted-true-if-uncertain.md`

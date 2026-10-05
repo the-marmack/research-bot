@@ -35,6 +35,8 @@ Three reasons it's not just inlined per-skill:
   "skill": "weekly-intelligence-digest",
   "destination": "digests" | "research",
   "cadence": "daily | weekly | biweekly | monthly | quarterly",  // for digests
+  "variant": "voices-security",                                    // optional, for digests
+  "title": "Security Voices",                                      // optional, overrides the H1
   "topic": "copilot",                                              // for research
   "slug": "what-changed",                                          // optional, derived from title if absent
   "period_start": "2026-06-13",
@@ -63,10 +65,12 @@ Three reasons it's not just inlined per-skill:
 
 For `destination: research`, `topic` must come from the controlled research-topic vocabulary in [`vault-conventions`](../vault-conventions/SKILL.md) — a new topic requires a `vault/decisions/` note first.
 
+For `destination: digests`, `variant` is passed straight through to `vault-writer.write_digest` — it sets the filename segment and the `digest_id` frontmatter field while `source_skill` stays the real skill. Use it when one skill emits several digests per period (one per category); omit it otherwise. When `variant` is set, `title` supplies the document H1 (e.g. `# Security Voices — 2026-08-31`) so a category digest reads under its own name rather than the skill's.
+
 ## Output document structure
 
 ```markdown
-# {Skill Title} — {period_end}
+# {title or Skill Title} — {period_end}
 
 **Period**: {period_start} → {period_end}{, since [[previous_digest]]}
 

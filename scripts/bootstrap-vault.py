@@ -34,6 +34,8 @@ VAULT_DIRS = [
     "_meta",
     "_meta/schema",
     "_config",
+    "_config/digests",
+    "_config/rosters",
     "_inbox",
     "_views",
     ".templates",
@@ -64,6 +66,17 @@ EXAMPLE_CONFIGS = [
         REPO_ROOT
         / ".claude/skills/executive-summary-writer/exec-preferences.example.md",
         "_config/exec-preferences.md",
+    ),
+    # One working digest category so a fresh vault has something to run.
+    # Seeded with email disabled — a half-configured distribution list must not
+    # send mail on the first scheduled fire.
+    (
+        REPO_ROOT / ".claude/skills/voices-watcher/digest-config.example.md",
+        "_config/digests/voices-all.md",
+    ),
+    (
+        REPO_ROOT / ".claude/skills/voices-watcher/roster.example.csv",
+        "_config/rosters/voices-all.csv",
     ),
 ]
 

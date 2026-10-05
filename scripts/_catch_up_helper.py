@@ -13,12 +13,16 @@ job's cadence-based expiry window (see EXPIRY_DAYS). Markers whose job id isn't
 in scheduled-jobs.yml are never auto-deleted.
 """
 
+import os
 import subprocess
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import yaml
+
+LOG_DIR_DEFAULT = "~/Library/Logs/research-bot"
+QUEUE_DIR_DEFAULT = "~/Obsidian/Research-Brain/_inbox/scheduled-jobs"
 
 DOW_MAP = {
     "sunday": 6, "monday": 0, "tuesday": 1, "wednesday": 2,
@@ -149,10 +153,24 @@ def past_expiry(cadence: dict, expected: datetime, now: datetime) -> bool:
     return (now.date() - expected.date()).days > expiry_days(cadence)
 
 
+def build_wrapper_env(cfg: dict) -> dict:
+    """Environment for a catch-up wrapper invocation.
+
+    The wrapper reads its log/queue paths from these vars (schedule-sync.py bakes
+    the same pair into every plist). Resolving them here from the same config
+    keeps a catch-up-fired run writing to the same places as a launchd-fired one.
+    """
+    env = dict(os.environ)
+    env["RESEARCH_BOT_LOG_DIR"] = str(
+        Path(cfg.get("log_dir", LOG_DIR_DEFAULT)).expanduser())
+    env["RESEARCH_BOT_QUEUE_DIR"] = str(
+        Path(cfg.get("queue_dir", QUEUE_DIR_DEFAULT)).expanduser())
+    return env
+
+
 def run_expiry(cfg: dict, today: date):
     """Delete expired queue markers. Invoked hourly after the catch-up pass."""
-    queue_dir = Path(cfg.get(
-        "queue_dir", "~/Obsidian/Research-Brain/_inbox/scheduled-jobs")).expanduser()
+    queue_dir = Path(cfg.get("queue_dir", QUEUE_DIR_DEFAULT)).expanduser()
     if not queue_dir.is_dir():
         print(f"  expiry: queue dir not found ({queue_dir}) — nothing to do")
         return
@@ -200,6 +218,7 @@ def main():
 
     default_mode = cfg.get("default_mode", "queue")
     wrapper = scripts_dir / "run-scheduled-job.sh"
+    wrapper_env = build_wrapper_env(cfg)
 
     now = datetime.utcnow()
     caught_up = skipped = no_state = 0
@@ -238,8 +257,9 @@ def main():
             print(f"  {job_id}: MISSED (last={last_run.isoformat()}, expected={expected.isoformat()}) — firing catch-up")
 
         result = subprocess.run(
-            ["bash", str(wrapper), job_id, mode, skill, str(timeout), str(every_n)],
-            capture_output=True, text=True,
+            ["bash", str(wrapper), job_id, mode, skill, str(timeout), str(every_n),
+             str(job.get("category", ""))],
+            capture_output=True, text=True, env=wrapper_env,
         )
         print(f"    wrapper exit={result.returncode}")
         if result.stderr:
