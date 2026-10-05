@@ -49,9 +49,12 @@ The primary action. Steps:
    ```json
    {"note_path": "<abs path>", "subject": "<derived subject>",
     "bcc": ["<validated recipient>", "…"],
-    "vault_footer_path": "digests/weekly/2026-…md"}
+    "vault_footer_path": "digests/weekly/2026-…md",
+    "attachments": ["<abs path to extra .md>", "…"]}
    ```
    The script builds the message and sends it: **From**/**To** = `GMAIL_SEND_ADDRESS` (self), **Bcc** = the validated recipients (addresses are NOT disclosed to each other — `send_message` strips the Bcc header before transmit). It renders the note's Markdown (frontmatter stripped) to styled HTML, attaches the raw `.md`, and emits a JSON result on stdout (or an `error`/`error_type` object + non-zero exit on failure — map `error_type` to the matching stop-and-report case below). See [Message body shape](#message-body-shape-v2--html--markdown-attachment).
+
+`attachments` (optional) is a list of absolute paths attached verbatim after the note, each under its own basename. Use it when a parent note (a synthesis) should travel with its child notes. A missing path is a `note_missing` stop-and-report; nothing is sent.
 
 Return:
 
@@ -62,7 +65,8 @@ Return:
     "subject":  "[Weekly Intelligence Digest] 2026-06-22 — ...",
     "from":     "you@gmail.com",
     "html":     true,                # false → markdown lib absent, plain-text-only fallback
-    "attached": "2026-06-22-weekly-intelligence-digest.md"
+    "attached": "2026-06-22-weekly-intelligence-digest.md",
+    "extra_attachments": []   # basenames of any `attachments` passed in
 }
 ```
 

@@ -75,7 +75,7 @@ def _walk_types(msg):
 def test_build_message_multipart_structure(ras, note):
     payload = {"note_path": str(note), "subject": "[Test] subject",
                "bcc": ["a@x.com", "b@y.com"], "vault_footer_path": "digests/x.md"}
-    msg, html_used, attached = ras.build_message(payload, "me@gmail.com")
+    msg, html_used, attached, _ = ras.build_message(payload, "me@gmail.com")
     assert html_used is True
     assert attached == "2026-07-21-test-digest.md"
     assert msg.get_content_type() == "multipart/mixed"
@@ -90,7 +90,7 @@ def test_build_message_multipart_structure(ras, note):
 def test_html_body_renders_markdown(ras, note):
     payload = {"note_path": str(note), "subject": "s", "bcc": [],
                "vault_footer_path": "digests/x.md"}
-    msg, _, _ = ras.build_message(payload, "me@gmail.com")
+    msg, _, _, _ = ras.build_message(payload, "me@gmail.com")
     html = next(p.get_payload(decode=True).decode()
                 for p in msg.walk() if p.get_content_type() == "text/html")
     assert "<table>" in html            # table rendered
@@ -102,7 +102,7 @@ def test_html_body_renders_markdown(ras, note):
 def test_attachment_is_raw_note_with_frontmatter(ras, note):
     payload = {"note_path": str(note), "subject": "s", "bcc": [],
                "vault_footer_path": "digests/x.md"}
-    msg, _, _ = ras.build_message(payload, "me@gmail.com")
+    msg, _, _, _ = ras.build_message(payload, "me@gmail.com")
     att = next(p for p in msg.walk() if p.get_content_disposition() == "attachment")
     assert att.get_payload(decode=True) == note.read_text().encode("utf-8")
     assert att.get_filename() == "2026-07-21-test-digest.md"
@@ -111,7 +111,7 @@ def test_attachment_is_raw_note_with_frontmatter(ras, note):
 def test_plain_part_has_no_frontmatter(ras, note):
     payload = {"note_path": str(note), "subject": "s", "bcc": [],
                "vault_footer_path": "digests/x.md"}
-    msg, _, _ = ras.build_message(payload, "me@gmail.com")
+    msg, _, _, _ = ras.build_message(payload, "me@gmail.com")
     plain = next(p.get_payload(decode=True).decode()
                  for p in msg.walk() if p.get_content_type() == "text/plain")
     assert "# Weekly Intelligence Digest" in plain
@@ -122,7 +122,7 @@ def test_markdown_absent_falls_back_to_plain(ras, note, monkeypatch):
     monkeypatch.setattr(ras, "HAVE_MARKDOWN", False)
     payload = {"note_path": str(note), "subject": "s", "bcc": [],
                "vault_footer_path": "digests/x.md"}
-    msg, html_used, _ = ras.build_message(payload, "me@gmail.com")
+    msg, html_used, _, _ = ras.build_message(payload, "me@gmail.com")
     assert html_used is False
     types = _walk_types(msg)
     assert "text/html" not in types
@@ -216,3 +216,42 @@ def test_main_smtp_auth_failure(ras, note, monkeypatch):
         rc = ras.main()
     assert rc == 1
     assert json.loads(buf.getvalue())["error_type"] == "smtp_auth"
+
+
+def test_extra_attachments_are_attached_verbatim(ras, note, tmp_path):
+    child_a = tmp_path / "child-a.md"
+    child_b = tmp_path / "child-b.md"
+    child_a.write_text("---\ntitle: A\n---\n# A\n", encoding="utf-8")
+    child_b.write_text("# B body only\n", encoding="utf-8")
+    payload = {"note_path": str(note), "subject": "s", "bcc": [],
+               "vault_footer_path": "research/x.md",
+               "attachments": [str(child_a), str(child_b)]}
+    msg, _, main_name, extra = ras.build_message(payload, "me@gmail.com")
+    atts = [p for p in msg.walk() if p.get_content_disposition() == "attachment"]
+    names = [a.get_filename() for a in atts]
+    assert names == ["2026-07-21-test-digest.md", "child-a.md", "child-b.md"]
+    assert main_name == "2026-07-21-test-digest.md"
+    assert extra == ["child-a.md", "child-b.md"]
+    assert atts[1].get_payload(decode=True) == child_a.read_bytes()
+    assert atts[2].get_payload(decode=True) == child_b.read_bytes()
+
+
+def test_extra_attachment_missing_is_note_missing_error(ras, note, monkeypatch):
+    payload = {"note_path": str(note), "subject": "s", "bcc": ["a@x.com"],
+               "attachments": [str(note.parent / "does-not-exist.md")]}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ras.main()
+    out = json.loads(buf.getvalue())
+    assert rc == 1
+    assert out["error_type"] == "note_missing"
+    assert "does-not-exist.md" in out["error"]
+
+
+def test_no_attachments_key_keeps_single_attachment(ras, note):
+    payload = {"note_path": str(note), "subject": "s", "bcc": []}
+    msg, _, _, extra = ras.build_message(payload, "me@gmail.com")
+    atts = [p for p in msg.walk() if p.get_content_disposition() == "attachment"]
+    assert len(atts) == 1
+    assert extra == []

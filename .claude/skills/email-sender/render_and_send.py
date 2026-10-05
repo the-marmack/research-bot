@@ -14,6 +14,7 @@ Invocation (from the email-sender skill, after it has resolved the note
 path, parsed + validated recipients, and derived the subject):
 
     echo '{"note_path": "...", "subject": "...", "bcc": ["a@x.com"],
+           "attachments": ["optional/extra/note.md", "..."],
            "vault_footer_path": "digests/weekly/2026-...md"}' \
         | python3 render_and_send.py
 
@@ -161,7 +162,10 @@ def render_html(body_md, footer_text):
 
 
 def build_message(payload, from_addr):
-    """Assemble the multipart/mixed message. Returns (msg, html_used)."""
+    """Assemble the multipart/mixed message.
+
+    Returns (msg, html_used, note_attachment_name, extra_attachment_names).
+    """
     note_path = Path(payload["note_path"]).expanduser()
     raw_text = note_path.read_text(encoding="utf-8")
     body_md = strip_frontmatter(raw_text)
@@ -198,7 +202,20 @@ def build_message(payload, from_addr):
     )
     outer.attach(attachment)
 
-    return outer, html_used, note_path.name
+    # Optional extra attachments (e.g. child research notes under a parent).
+    # Each is attached verbatim under its own basename; a missing path raises
+    # FileNotFoundError so the caller gets a clean stop-and-report.
+    extra_names = []
+    for extra in payload.get("attachments", []) or []:
+        extra_path = Path(extra).expanduser()
+        part = MIMEApplication(extra_path.read_bytes(), _subtype="octet-stream")
+        part.add_header(
+            "Content-Disposition", "attachment", filename=extra_path.name
+        )
+        outer.attach(part)
+        extra_names.append(extra_path.name)
+
+    return outer, html_used, note_path.name, extra_names
 
 
 def main():
@@ -233,10 +250,11 @@ def main():
         return 1
 
     try:
-        msg, html_used, attached_name = build_message(payload, from_addr)
-    except FileNotFoundError:
+        msg, html_used, attached_name, extra_names = build_message(
+            payload, from_addr)
+    except FileNotFoundError as e:
         print(json.dumps({
-            "error": f"note not found: {payload['note_path']}",
+            "error": f"note or attachment not found: {e.filename or payload['note_path']}",
             "error_type": "note_missing"}))
         return 1
 
@@ -264,6 +282,7 @@ def main():
         "from": from_addr,
         "html": html_used,
         "attached": attached_name,
+        "extra_attachments": extra_names,
     }))
     return 0
 
