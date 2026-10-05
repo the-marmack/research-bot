@@ -8,6 +8,7 @@ Two layers:
   internally consistent. Skipped when no vault is present.
 """
 import csv
+import json
 import textwrap
 from pathlib import Path
 
@@ -346,3 +347,17 @@ def test_live_categories_agree_with_scheduled_jobs():
     for cid in by_category:
         assert any(c["id"] == cid for c in cats), (
             f"job category {cid} has no config at _config/digests/{cid}.md")
+
+
+def test_cli_serializes_date_fields(tmp_path, capsys):
+    """YAML parses unquoted `created: 2026-08-31` into a date, not a string.
+
+    Regression: the CLI crashed on any real config, since every vault note
+    carries created/updated. The hermetic fixtures had no date fields.
+    """
+    with_roster(tmp_path)
+    write_category(tmp_path, "voices-ai", VALID + "\ncreated: 2026-08-31")
+    rc = dc.main(["digest_categories.py", str(tmp_path)])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload[0]["config"]["created"] == "2026-08-31"

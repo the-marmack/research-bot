@@ -35,10 +35,48 @@ catch_up_on_login: true
 #   { months: [1,4,7,10], day, hour, minute }   → on specified months only
 
 jobs:
-  - id: voices-watcher
+  # Voices digests — one job per category, all driving the single
+  # voices-watcher skill. `category` is passed to the wrapper as $6 and must
+  # equal the job id: that string is also the config stem
+  # (vault/_config/digests/{id}.md), the roster stem, and the digest filename
+  # segment. Minutes are staggered so concurrent runs never contend on the
+  # shared seen-tracker state file, which documents no locking.
+  #
+  # The digest/email flags live in each category's vault config, not here —
+  # toggling one needs no schedule-sync run. Removing a category entirely does.
+  - id: voices-ai-research
     skill: voices-watcher
+    category: voices-ai-research
     cadence: { hour: 7, minute: 30 }
     timeout_seconds: 1800
+
+  - id: voices-ai-industry
+    skill: voices-watcher
+    category: voices-ai-industry
+    cadence: { hour: 7, minute: 35 }
+    timeout_seconds: 1800
+
+  - id: voices-security
+    skill: voices-watcher
+    category: voices-security
+    cadence: { hour: 7, minute: 40 }
+    timeout_seconds: 1200
+
+  - id: voices-product
+    skill: voices-watcher
+    category: voices-product
+    cadence: { hour: 7, minute: 45 }
+    timeout_seconds: 1200
+
+  # Dormant (digest: false) — the job stays so activating the category is a
+  # checkbox in Obsidian rather than a repo edit plus resync. It writes a
+  # marker that the skill deletes on drain; unattended markers auto-expire
+  # after the 3-day daily window.
+  - id: voices-markets
+    skill: voices-watcher
+    category: voices-markets
+    cadence: { hour: 7, minute: 50 }
+    timeout_seconds: 600
 
   - id: daily-cve-digest
     skill: daily-cve-digest

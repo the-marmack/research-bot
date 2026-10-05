@@ -17,6 +17,7 @@ CLI::
 
 Exits non-zero if any config is invalid, so it doubles as a pre-flight check.
 """
+import datetime
 import json
 import re
 import sys
@@ -160,6 +161,13 @@ def active(categories):
             if not c["problems"] and c["config"].get("digest") is True]
 
 
+def _json_default(o):
+    """YAML parses unquoted `created: 2026-08-31` into a date, not a string."""
+    if isinstance(o, (datetime.date, datetime.datetime)):
+        return o.isoformat()
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
 def main(argv):
     args = argv[1:]
     want_id = None
@@ -182,7 +190,7 @@ def main(argv):
             print(json.dumps({"error": f"no category with id {want_id!r}"}))
             return 1
 
-    print(json.dumps(cats, indent=2))
+    print(json.dumps(cats, indent=2, default=_json_default))
     return 1 if any(c["problems"] for c in cats) else 0
 
 
