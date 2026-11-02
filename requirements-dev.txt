@@ -1,3 +1,3 @@
 # Dev/test-only dependencies (not needed at runtime by the skills).
 # Install with: pip install -r scripts/requirements.txt -r requirements-dev.txt
-pytest>=9.1.1
+pytest>=9.2.0
